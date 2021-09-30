@@ -1,0 +1,23 @@
+# Maven
+# Build your Java project and run tests with Apache Maven.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
+
+trigger:
+  - master
+
+pr:
+  - master
+
+variables:
+  GOPATH: $(Build.Repository.LocalPath)/src/test/fixture
+  FABRIC_VERSION: 2.1
+
+pool:
+  vmImage: 'ubuntu-18.04'
+
+jobs:
+  - job: Integration
+    steps:
+      - script: ./scripts/run-integration-tests.sh
+        displayName: Run Tests
