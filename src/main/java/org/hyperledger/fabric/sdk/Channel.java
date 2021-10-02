@@ -4394,6 +4394,19 @@ public class Channel implements Serializable {
         return sendProposal(transactionProposalRequest, getEndorsingPeers());
     }
 
+    /**
+     * Send a transaction  proposal.
+     *
+     * @param transactionProposalRequest The transaction proposal to be sent to all the required peers needed for endorsing.
+     * @return responses from peers.
+     * @throws InvalidArgumentException
+     * @throws ProposalException
+     */
+    public String sendTransactionProposaltoCorfu(TransactionProposalRequest transactionProposalRequest) throws ProposalException, InvalidArgumentException {
+
+        return sendProposaltoCorfu(transactionProposalRequest);
+    }
+
     private static class PeerExactMatch { // use original equals of Peer and not what's overrident
         final Peer peer;
 
@@ -4911,7 +4924,6 @@ public class Channel implements Serializable {
             throw exp;
         }
     }
-
 
     private transient ServiceDiscovery.EndorsementSelector endorsementSelector = ServiceDiscovery.DEFAULT_ENDORSEMENT_SELECTION;
 
