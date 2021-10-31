@@ -237,7 +237,7 @@ class Endpoint {
 
         try {
             if (protocol.equalsIgnoreCase("grpc")) {
-                this.channelBuilder = NettyChannelBuilder.forAddress(addr, port).usePlaintext(true);
+                this.channelBuilder = NettyChannelBuilder.forAddress(addr, port).usePlaintext();
                 addNettyBuilderProps(channelBuilder, properties);
             } else if (protocol.equalsIgnoreCase("grpcs")) {
                 if (pemBytes == null) {

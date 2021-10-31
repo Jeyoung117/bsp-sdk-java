@@ -64,6 +64,7 @@ import io.grpc.StatusRuntimeException;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.hyperledger.fabric.protos.common.Common;
 import org.hyperledger.fabric.protos.common.Common.Block;
 import org.hyperledger.fabric.protos.common.Common.BlockMetadata;
 import org.hyperledger.fabric.protos.common.Common.ChannelHeader;
@@ -2992,6 +2993,7 @@ public class Channel implements Serializable {
         sp = ProposalPackage.SignedProposal.newBuilder()
                 .setProposalBytes(proposal.toByteString())
                 .setSignature(transactionContext.signByteString(proposal.toByteArray()))
+//                .setTxcontextBytes(transactionContext.toByteString())
                 .build();
 
         return sp;
@@ -5091,6 +5093,7 @@ public class Channel implements Serializable {
         return proposalResponses;
     }
 
+
     /**
      * Send transaction to one of the orderers on the channel using a specific user context.
      *
@@ -5669,26 +5672,27 @@ public class Channel implements Serializable {
                 Collections.shuffle(shuffeledOrderers);
             }
 
-            if (config.getProposalConsistencyValidation()) {
-                HashSet<ProposalResponse> invalid = new HashSet<>();
-                int consistencyGroups = SDKUtils.getProposalConsistencySets(proposalResponses, invalid).size();
+            //Proposal response 하나만 받으므로 각각의 P.R 비교 process 불필요
+//            if (config.getProposalConsistencyValidation()) {
+//                HashSet<ProposalResponse> invalid = new HashSet<>();
+//                int consistencyGroups = SDKUtils.getProposalConsistencySets(proposalResponses, invalid).size();
+//
+//                if (consistencyGroups != 1 || !invalid.isEmpty()) {
+//                    throw new IllegalArgumentException(format(
+//                            "The proposal responses have %d inconsistent groups with %d that are invalid."
+//                                    + " Expected all to be consistent and none to be invalid.",
+//                            consistencyGroups, invalid.size()));
+//                }
+//            }
 
-                if (consistencyGroups != 1 || !invalid.isEmpty()) {
-                    throw new IllegalArgumentException(format(
-                            "The proposal responses have %d inconsistent groups with %d that are invalid."
-                                    + " Expected all to be consistent and none to be invalid.",
-                            consistencyGroups, invalid.size()));
-                }
-            }
-
-            List<ProposalResponsePackage.Endorsement> ed = new LinkedList<>();
+//            List<ProposalResponsePackage.Endorsement> ed = new LinkedList<>();
             ProposalPackage.Proposal proposal = null;
             ByteString proposalResponsePayload = null;
             String proposalTransactionID = null;
             TransactionContext transactionContext = null;
 
             for (ProposalResponse sdkProposalResponse : proposalResponses) {
-                ed.add(sdkProposalResponse.getProposalResponse().getEndorsement());
+//                ed.add(sdkProposalResponse.getProposalResponse().getEndorsement());
                 if (proposal == null) {
                     proposal = sdkProposalResponse.getProposal();
                     proposalTransactionID = sdkProposalResponse.getTransactionID();
@@ -5699,10 +5703,10 @@ public class Channel implements Serializable {
                     if (proposalResponsePayload == null) {
                         throw new InvalidArgumentException("Proposals with missing payload.");
                     }
-                    transactionContext = sdkProposalResponse.getTransactionContext();
-                    if (transactionContext == null) {
-                        throw new InvalidArgumentException("Proposals with missing transaction context.");
-                    }
+//                    transactionContext = sdkProposalResponse.getTransactionContext();
+//                    if (transactionContext == null) {
+//                        throw new InvalidArgumentException("Proposals with missing transaction context.");
+//                    }
                 } else {
                     final String transactionID = sdkProposalResponse.getTransactionID();
                     if (transactionID == null) {
@@ -5718,7 +5722,7 @@ public class Channel implements Serializable {
 
             Payload transactionPayload = transactionBuilder
                     .chaincodeProposal(proposal)
-                    .endorsements(ed)
+//                    .endorsements(ed)
                     .proposalResponsePayload(proposalResponsePayload).build();
 
             Envelope transactionEnvelope = createTransactionEnvelope(transactionPayload, transactionContext);

@@ -32,26 +32,33 @@ import static org.hyperledger.fabric.sdk.helper.Utils.toHexString;
 
 public class ProposalResponse extends ChaincodeResponse {
 
-    private static final Log logger = LogFactory.getLog(ProposalResponse.class);
-    private static final Config config = Config.getConfig();
-    private static final boolean IS_TRACE_LEVEL = logger.isTraceEnabled();
+    public static final Log logger = LogFactory.getLog(ProposalResponse.class);
+    public static final Config config = Config.getConfig();
+    public static final boolean IS_TRACE_LEVEL = logger.isTraceEnabled();
 
     private static final DiagnosticFileDumper diagnosticFileDumper = IS_TRACE_LEVEL
             ? config.getDiagnosticFileDumper() : null;
 
-    private boolean isVerified = false;
-    private boolean hasBeenVerified = false;
+    public boolean isVerified = false;
+    public boolean hasBeenVerified = false;
 
-    private WeakReference<ProposalResponsePayloadDeserializer> proposalResponsePayload;
-    private ProposalPackage.Proposal proposal;
-    private ProposalResponsePackage.ProposalResponse proposalResponse;
-    private Peer peer = null;
-    private ChaincodeID chaincodeID = null;
-    private final TransactionContext transactionContext;
+    public WeakReference<ProposalResponsePayloadDeserializer> proposalResponsePayload;
+    public ProposalPackage.Proposal proposal;
+    public ProposalResponsePackage.ProposalResponse proposalResponse;
+    public Peer peer = null;
+    public ChaincodeID chaincodeID = null;
+    public TransactionContext transactionContext;
 
-    ProposalResponse(TransactionContext transactionContext, int status, String message) {
+    public ProposalResponse(TransactionContext transactionContext, int status, String message) {
         super(transactionContext.getTxID(), transactionContext.getChannelID(), status, message);
         this.transactionContext = transactionContext;
+    }
+
+    //for corfu orderer stub
+//    how to make transactioncontext in orderer stub side?
+    public ProposalResponse(String txId, String channelID, int status, String message) {
+        super(txId, channelID, status, message);
+        this.transactionContext = null;
     }
 
     TransactionContext getTransactionContext() {

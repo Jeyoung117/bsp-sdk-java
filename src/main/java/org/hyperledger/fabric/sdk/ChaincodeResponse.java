@@ -16,14 +16,14 @@ package org.hyperledger.fabric.sdk;
 
 public class ChaincodeResponse {
 
-    protected int statusReturnCode = -1;
+    public int statusReturnCode = -1;
 
     public enum Status {
         UNDEFINED(0),
         SUCCESS(200),
         FAILURE(500);
 
-        private int status = 0;
+        public int status = 0;
 
         Status(int status) {
             this.status = status;
@@ -34,9 +34,9 @@ public class ChaincodeResponse {
         }
     }
 
-    private final Status status;
-    private final String message;
-    private final String transactionID;
+    public final Status status;
+    public final String message;
+    public final String transactionID;
 
     public boolean isInvalid() {
         return status != Status.SUCCESS;
