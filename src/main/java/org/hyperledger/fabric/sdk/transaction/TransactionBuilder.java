@@ -61,7 +61,10 @@ public class TransactionBuilder {
 
     public Common.Payload build() throws InvalidProtocolBufferException {
 
-        return createTransactionCommonPayload(chaincodeProposal, proposalResponsePayload, endorsements);
+//        return createTransactionCommonPayload(chaincodeProposal, proposalResponsePayload, endorsements);
+
+        //for corfu
+        return createTransactionCommonPayload(chaincodeProposal, proposalResponsePayload);
 
     }
 
@@ -71,6 +74,61 @@ public class TransactionBuilder {
         TransactionPackage.ChaincodeEndorsedAction.Builder chaincodeEndorsedActionBuilder = TransactionPackage.ChaincodeEndorsedAction.newBuilder();
         chaincodeEndorsedActionBuilder.setProposalResponsePayload(proposalResponsePayload);
         chaincodeEndorsedActionBuilder.addAllEndorsements(endorsements);
+
+        //ChaincodeActionPayload
+        TransactionPackage.ChaincodeActionPayload.Builder chaincodeActionPayloadBuilder = TransactionPackage.ChaincodeActionPayload.newBuilder();
+        chaincodeActionPayloadBuilder.setAction(chaincodeEndorsedActionBuilder.build());
+
+        //We need to remove any transient fields - they are not part of what the peer uses to calculate hash.
+        ProposalPackage.ChaincodeProposalPayload.Builder chaincodeProposalPayloadNoTransBuilder = ProposalPackage.ChaincodeProposalPayload.newBuilder();
+        chaincodeProposalPayloadNoTransBuilder.mergeFrom(chaincodeProposal.getPayload());
+        chaincodeProposalPayloadNoTransBuilder.clearTransientMap();
+
+        chaincodeActionPayloadBuilder.setChaincodeProposalPayload(chaincodeProposalPayloadNoTransBuilder.build().toByteString());
+
+        TransactionPackage.TransactionAction.Builder transactionActionBuilder = TransactionPackage.TransactionAction.newBuilder();
+
+        Common.Header header = Common.Header.parseFrom(chaincodeProposal.getHeader());
+
+        if (config.extraLogLevel(10)) {
+            if (null != diagnosticFileDumper) {
+                StringBuilder sb = new StringBuilder(10000);
+                sb.append("transaction header bytes:" + Arrays.toString(header.toByteArray()));
+                sb.append("\n");
+                sb.append("transaction header sig bytes:" + Arrays.toString(header.getSignatureHeader().toByteArray()));
+                logger.trace("transaction header:  " +
+                        diagnosticFileDumper.createDiagnosticFile(sb.toString()));
+            }
+        }
+
+        transactionActionBuilder.setHeader(header.getSignatureHeader());
+
+        TransactionPackage.ChaincodeActionPayload chaincodeActionPayload = chaincodeActionPayloadBuilder.build();
+        if (config.extraLogLevel(10)) {
+            if (null != diagnosticFileDumper) {
+                logger.trace("transactionActionBuilder.setPayload: " +
+                        diagnosticFileDumper.createDiagnosticFile(Arrays.toString(chaincodeActionPayload.toByteString().toByteArray())));
+            }
+        }
+        transactionActionBuilder.setPayload(chaincodeActionPayload.toByteString());
+
+        //Transaction
+        TransactionPackage.Transaction.Builder transactionBuilder = TransactionPackage.Transaction.newBuilder();
+        transactionBuilder.addActions(transactionActionBuilder.build());
+
+        Common.Payload.Builder payload = Common.Payload.newBuilder();
+        payload.setHeader(header);
+        payload.setData(transactionBuilder.build().toByteString());
+
+        return payload.build();
+    }
+
+
+    private Common.Payload createTransactionCommonPayload(ProposalPackage.Proposal chaincodeProposal, ByteString proposalResponsePayload) throws InvalidProtocolBufferException {
+
+        TransactionPackage.ChaincodeEndorsedAction.Builder chaincodeEndorsedActionBuilder = TransactionPackage.ChaincodeEndorsedAction.newBuilder();
+        chaincodeEndorsedActionBuilder.setProposalResponsePayload(proposalResponsePayload);
+//        chaincodeEndorsedActionBuilder.addAllEndorsements(endorsements);
 
         //ChaincodeActionPayload
         TransactionPackage.ChaincodeActionPayload.Builder chaincodeActionPayloadBuilder = TransactionPackage.ChaincodeActionPayload.newBuilder();

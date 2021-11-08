@@ -20,6 +20,7 @@ import java.io.Serializable;
 import java.util.Properties;
 
 import io.netty.util.internal.StringUtil;
+import jdk.nashorn.internal.objects.annotations.Setter;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.hyperledger.fabric.protos.common.Common;
@@ -43,13 +44,13 @@ public class Orderer implements Serializable {
     private static final Log logger = LogFactory.getLog(Orderer.class);
     private static final long serialVersionUID = 4281642068914263247L;
     private final Properties properties;
-    private final String name;
-    private final String url;
+    public  String name;
+    public String url;
     private transient boolean shutdown = false;
     private Channel channel;
     private transient volatile OrdererClient ordererClient = null;
     private transient byte[] clientTLSCertificateDigest;
-    private String channelName = "";
+    public String channelName = "";
     private transient String id = config.getNextID();
 
     Orderer(String name, String url, Properties properties) throws InvalidArgumentException {
@@ -233,8 +234,7 @@ public class Orderer implements Serializable {
         channelName = "";
 
     }
-
-    private String endPoint;
+    public String endPoint;
 
     String getEndpoint() {
         if (null == endPoint) {
@@ -242,6 +242,18 @@ public class Orderer implements Serializable {
             endPoint = properties.get("host") + ":" + properties.getProperty("port").toLowerCase().trim();
         }
         return endPoint;
+    }
+
+    public void setEndpoint(String endPoint) {
+        this.endPoint = endPoint;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public void setUrl(String url) {
+        this.url = url;
     }
 
     @Override

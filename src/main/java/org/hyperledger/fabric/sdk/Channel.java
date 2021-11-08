@@ -56,6 +56,8 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
+import bsp_transaction.BspTransactionOuterClass;
+import bsp_transaction.CorfuConnectBSPGrpc;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.grpc.ManagedChannel;
@@ -91,6 +93,7 @@ import org.hyperledger.fabric.protos.orderer.Ab.DeliverResponse;
 import org.hyperledger.fabric.protos.orderer.Ab.SeekInfo;
 import org.hyperledger.fabric.protos.orderer.Ab.SeekPosition;
 import org.hyperledger.fabric.protos.orderer.Ab.SeekSpecified;
+import org.hyperledger.fabric.protos.orderer.ClusterOuterClass;
 import org.hyperledger.fabric.protos.peer.Configuration;
 import org.hyperledger.fabric.protos.peer.ProposalPackage;
 import org.hyperledger.fabric.protos.peer.ProposalResponsePackage;
@@ -210,6 +213,7 @@ public class Channel implements Serializable {
     private transient ServiceDiscovery serviceDiscovery;
     private static final boolean asLocalhost = config.discoverAsLocalhost();
 
+
     private String corfu_host = "141.223.121.139";
     private int corfu_port = 54323;
 
@@ -217,8 +221,8 @@ public class Channel implements Serializable {
             .usePlaintext()
             .build();
 
-    CorfuConnectGrpc.CorfuConnectBlockingStub corfuStub =
-            CorfuConnectGrpc.newBlockingStub(corfu_channel);
+    CorfuConnectBSPGrpc.CorfuConnectBSPBlockingStub corfuStub =
+            CorfuConnectBSPGrpc.newBlockingStub(corfu_channel);
 
     {
         for (Peer.PeerRole peerRole : EnumSet.allOf(PeerRole.class)) {
@@ -2993,7 +2997,32 @@ public class Channel implements Serializable {
         sp = ProposalPackage.SignedProposal.newBuilder()
                 .setProposalBytes(proposal.toByteString())
                 .setSignature(transactionContext.signByteString(proposal.toByteArray()))
-//                .setTxcontextBytes(transactionContext.toByteString())
+                .build();
+
+        return sp;
+    }
+
+    private BspTransactionOuterClass.Proposal getSignedProposalforCorfu(TransactionContext transactionContext, TransactionRequest proposalRequest) throws CryptoException, InvalidArgumentException {
+        ArrayList<String> arrayList = proposalRequest.getArgs();
+        arrayList.add(0, proposalRequest.getFcn());
+        BspTransactionOuterClass.ProposalPayload propPayload = BspTransactionOuterClass.ProposalPayload.newBuilder()
+                .setClientId("edgechain0:::client0") //clientId는 bsp에서 뭐지?
+                .setTxId(transactionContext.getTxID())
+                .setChaincodeId(proposalRequest.getChaincodeName())
+                .addAllChaincodeArgs(arrayList)
+                //Extensionpayload에는 뭐가 들어가지?
+                .build();
+
+        BspTransactionOuterClass.SignatureHeader signatureHeader = BspTransactionOuterClass.SignatureHeader.newBuilder()
+                .setCreator(transactionContext.getIdentity().toByteString())
+                .setNonce(transactionContext.getNonce())
+                .build();
+
+        BspTransactionOuterClass.Proposal sp;
+        sp = BspTransactionOuterClass.Proposal.newBuilder()
+                .setSignature(transactionContext.signByteString(propPayload.toByteArray())) //proposal payload 서명하는 것!
+                .setPayload(propPayload.toByteString())
+                .setSignatureHeader(signatureHeader.toByteString())
                 .build();
 
         return sp;
@@ -4404,8 +4433,7 @@ public class Channel implements Serializable {
      * @throws InvalidArgumentException
      * @throws ProposalException
      */
-    public String sendTransactionProposaltoCorfu(TransactionProposalRequest transactionProposalRequest) throws ProposalException, InvalidArgumentException {
-
+    public BspTransactionOuterClass.SubmitResponse sendTransactionProposaltoCorfu(TransactionProposalRequest transactionProposalRequest) throws ProposalException, InvalidArgumentException {
         return sendProposaltoCorfu(transactionProposalRequest);
     }
 
@@ -4785,7 +4813,7 @@ public class Channel implements Serializable {
      * @throws ProposalException
      */
 
-    public String queryByChaincodetoCorfu(QueryByChaincodeRequest queryByChaincodeRequest) throws InvalidArgumentException, ProposalException {
+    public BspTransactionOuterClass.SubmitResponse queryByChaincodetoCorfu(QueryByChaincodeRequest queryByChaincodeRequest) throws InvalidArgumentException, ProposalException {
         return sendProposaltoCorfu(queryByChaincodeRequest);
     }
 
@@ -4857,7 +4885,7 @@ public class Channel implements Serializable {
 
     }
     //sendProposal for corfu
-    private String sendProposaltoCorfu(TransactionRequest proposalRequest) throws
+    private BspTransactionOuterClass.SubmitResponse sendProposaltoCorfu(TransactionRequest proposalRequest) throws
             InvalidArgumentException, ProposalException {
 
         if (null == proposalRequest) {
@@ -4873,13 +4901,8 @@ public class Channel implements Serializable {
             transactionContext.verify(proposalRequest.doVerify());
             transactionContext.setProposalWaitTime(proposalRequest.getProposalWaitTime());
 
-            // Protobuf message builder
-            ProposalBuilder proposalBuilder = ProposalBuilder.newBuilder();
-            proposalBuilder.context(transactionContext);
-            proposalBuilder.request(proposalRequest);
-
-            ProposalPackage.SignedProposal invokeProposal = getSignedProposal(transactionContext, proposalBuilder.build());
-            return sendProposalToAdaptermodule(invokeProposal, transactionContext);
+            BspTransactionOuterClass.Proposal invokeProposal = getSignedProposalforCorfu(transactionContext, proposalRequest);
+            return sendProposalToAdaptermodule(invokeProposal);
         } catch (ProposalException e) {
             throw e;
 
@@ -4936,12 +4959,12 @@ public class Channel implements Serializable {
 
     }
 
-    private String sendProposalToAdaptermodule(ProposalPackage.SignedProposal signedProposal,
-                                               TransactionContext transactionContext) throws InvalidArgumentException, ProposalException {
-
-        return sendProposalToAdaptermodules(signedProposal,
-                transactionContext);
-
+    private BspTransactionOuterClass.SubmitResponse sendProposalToAdaptermodule(BspTransactionOuterClass.Proposal signedProposal) throws ProposalException {
+        BspTransactionOuterClass.SubmitResponse response = corfuStub.processProposal(signedProposal);
+        if(response.getStatus() != 200) {
+            //제대로 된 값 return 못 받으면 에러 처리, channel.java 4930 line 참고
+        }
+        return response;
     }
 
     private Collection<ProposalResponse> sendProposalToPeers(Collection<Peer> peers,
@@ -4953,25 +4976,12 @@ public class Channel implements Serializable {
                 transactionContext, ProposalResponse.class);
 
     }
-
-    private String sendProposalToAdaptermodules(ProposalPackage.SignedProposal signedProposal,
+//adapter module이 추후 여러개가 되면 random하게 보낼 수 있도록
+    private BspTransactionOuterClass.SubmitResponse sendProposalToAdaptermodules(BspTransactionOuterClass.Proposal signedProposal,
                                                TransactionContext transactionContext) throws InvalidArgumentException, ProposalException {
+        BspTransactionOuterClass.SubmitResponse response = corfuStub.processProposal(signedProposal);
 
-
-        final String txID = transactionContext.getTxID();
-
-        class Pair {
-
-            private final Future<ProposalResponsePackage.ProposalResponse> future;
-
-            private Pair(Future<ProposalResponsePackage.ProposalResponse> future) {
-                this.future = future;
-            }
-        }
-        corfuStub.processProposal(signedProposal);
-
-
-        return "proposalResponses";
+        return response;
     }
 
 
@@ -5662,11 +5672,24 @@ public class Channel implements Serializable {
                 throw new InvalidArgumentException("sendTransaction proposalResponses was null");
             }
 
+
+//            List<Orderer> orderers = transactionOptions.orderers != null ? transactionOptions.orderers :
+//                    new ArrayList<>(getOrderers());
             List<Orderer> orderers = transactionOptions.orderers != null ? transactionOptions.orderers :
                     new ArrayList<>(getOrderers());
 
-            // make certain we have our own copy
+            Orderer temp = orderers.get(0);
+//            Orderer bspOrderer = Orderer.createNewInstance("141.223.121.242:7050", "grpcs://141.223.121.242:7050", temp.getProperties());
+//            bspOrderer.setChannel(temp.getChannel());
+//            //            temp.setName("141.223.121.242:7050");
+////            temp.setUrl("grpcs://141.223.121.242:7050");
+////            temp.setEndpoint("141.223.121.242:7050");
+////            temp.toString();
+//            orderers.remove(0);
+//            orderers.add(bspOrderer);
+//            // make certain we have our own copy
             final List<Orderer> shuffeledOrderers = new ArrayList<>(orderers);
+
 
             if (transactionOptions.shuffleOrders) {
                 Collections.shuffle(shuffeledOrderers);
@@ -5704,9 +5727,12 @@ public class Channel implements Serializable {
                         throw new InvalidArgumentException("Proposals with missing payload.");
                     }
 //                    transactionContext = sdkProposalResponse.getTransactionContext();
-//                    if (transactionContext == null) {
-//                        throw new InvalidArgumentException("Proposals with missing transaction context.");
-//                    }
+
+                    transactionContext = getTransactionContext();
+//                    sdkProposalResponse.getTransactionContext();
+                    if (transactionContext == null) {
+                        throw new InvalidArgumentException("Proposals with missing transaction context.");
+                    }
                 } else {
                     final String transactionID = sdkProposalResponse.getTransactionID();
                     if (transactionID == null) {
@@ -5793,6 +5819,9 @@ public class Channel implements Serializable {
                     resp = orderer.sendTransaction(transactionEnvelope);
                     lException = null; // no longer last exception .. maybe just failed.
                     if (resp.getStatus() == Status.SUCCESS) {
+                        logger.info("보내고 받은 resp.status: " + resp.getStatus());
+                        logger.info("보내고 받은 resp.getInfo: " + resp.getInfo());
+
                         success = true;
                         break;
                     } else {
@@ -5870,6 +5899,12 @@ public class Channel implements Serializable {
         return Envelope.newBuilder()
                 .setPayload(transactionPayload.toByteString())
                 .setSignature(ByteString.copyFrom(transactionContext.sign(transactionPayload.toByteArray())))
+                .build();
+    }
+    private Envelope createTransactionEnvelope(Payload transactionPayload) throws CryptoException, InvalidArgumentException {
+        return Envelope.newBuilder()
+                .setPayload(transactionPayload.toByteString())
+                .setSignature(null)
                 .build();
     }
 
