@@ -214,7 +214,7 @@ public class Channel implements Serializable {
     private static final boolean asLocalhost = config.discoverAsLocalhost();
 
 
-    private String corfu_host = "141.223.121.139";
+    private String corfu_host = "141.223.121.141";
     private int corfu_port = 54323;
 
     private ManagedChannel corfu_channel = ManagedChannelBuilder.forAddress(corfu_host, corfu_port)
@@ -3002,27 +3002,18 @@ public class Channel implements Serializable {
         return sp;
     }
 
-    private BspTransactionOuterClass.Proposal getSignedProposalforCorfu(TransactionContext transactionContext, TransactionRequest proposalRequest) throws CryptoException, InvalidArgumentException {
+    private BspTransactionOuterClass.ProposalforBench getSignedProposalforCorfu(TransactionContext transactionContext, TransactionRequest proposalRequest) throws CryptoException, InvalidArgumentException {
         ArrayList<String> arrayList = proposalRequest.getArgs();
         arrayList.add(0, proposalRequest.getFcn());
-        BspTransactionOuterClass.ProposalPayload propPayload = BspTransactionOuterClass.ProposalPayload.newBuilder()
+        BspTransactionOuterClass.ProposalforBench sp = BspTransactionOuterClass.ProposalforBench.newBuilder()
                 .setClientId("edgechain0:::client0") //clientId는 bsp에서 뭐지?
                 .setTxId(transactionContext.getTxID())
                 .setChaincodeId(proposalRequest.getChaincodeName())
                 .addAllChaincodeArgs(arrayList)
-                //Extensionpayload에는 뭐가 들어가지?
-                .build();
-
-        BspTransactionOuterClass.SignatureHeader signatureHeader = BspTransactionOuterClass.SignatureHeader.newBuilder()
                 .setCreator(transactionContext.getIdentity().toByteString())
                 .setNonce(transactionContext.getNonce())
-                .build();
-
-        BspTransactionOuterClass.Proposal sp;
-        sp = BspTransactionOuterClass.Proposal.newBuilder()
-                .setSignature(transactionContext.signByteString(propPayload.toByteArray())) //proposal payload 서명하는 것!
-                .setPayload(propPayload.toByteString())
-                .setSignatureHeader(signatureHeader.toByteString())
+//                .setSignature(transactionContext.signByteString(propPayload.toByteArray())) //proposal payload 서명하는 것!
+                //Extensionpayload에는 뭐가 들어가지?
                 .build();
 
         return sp;
@@ -4901,7 +4892,7 @@ public class Channel implements Serializable {
             transactionContext.verify(proposalRequest.doVerify());
             transactionContext.setProposalWaitTime(proposalRequest.getProposalWaitTime());
 
-            BspTransactionOuterClass.Proposal invokeProposal = getSignedProposalforCorfu(transactionContext, proposalRequest);
+            BspTransactionOuterClass.ProposalforBench invokeProposal = getSignedProposalforCorfu(transactionContext, proposalRequest);
             return sendProposalToAdaptermodule(invokeProposal);
         } catch (ProposalException e) {
             throw e;
@@ -4959,11 +4950,9 @@ public class Channel implements Serializable {
 
     }
 
-    private BspTransactionOuterClass.SubmitResponse sendProposalToAdaptermodule(BspTransactionOuterClass.Proposal signedProposal) throws ProposalException {
-        BspTransactionOuterClass.SubmitResponse response = corfuStub.processProposal(signedProposal);
-        if(response.getStatus() != 200) {
-            //제대로 된 값 return 못 받으면 에러 처리, channel.java 4930 line 참고
-        }
+    private BspTransactionOuterClass.SubmitResponse sendProposalToAdaptermodule(BspTransactionOuterClass.ProposalforBench signedProposal) throws ProposalException {
+        BspTransactionOuterClass.SubmitResponse response = corfuStub.processProposalforBench(signedProposal);
+
         return response;
     }
 

@@ -199,6 +199,17 @@ message Proposal {
   /* bytes payload = 7; */
 }
 
+// TxRequest by client to BSP
+message ProposalforBench {
+  string clientId = 1;
+  string txId = 2;
+  string chaincodeId = 3;
+  repeated string chaincodeArgs = 4;
+  bytes creator = 5; // serializedIdentity
+  bytes nonce = 6;
+  bytes signature = 7;
+}
+
 message ProposalBatch {
   repeated Proposal Batches = 1;
 }
@@ -504,12 +515,6 @@ message QueryRequest {
   bytes Extension = 4; // Unmarshaled to ReadPolicy
 }
 
-// Single query resp
-message QueryResponse {
-  string Key = 1;
-  bytes Value = 2;
-}
-
 // A response with a representation similar to an HTTP response that can
 // be used within another message.
 message SubmitResponse {
@@ -521,6 +526,16 @@ message SubmitResponse {
 
   // A payload that can be used to include metadata with this response.
   bytes payload = 3;
+}
+
+// Single query resp
+message QueryResponse {
+  // A status code that should follow the HTTP status codes.
+  int32 status = 1;
+
+  // A message associated with the response code.
+  string Key = 2;
+  bytes Value = 3;
 }
 
 message MainchainBlockDeliverRequest {
@@ -575,6 +590,8 @@ service QueryExecutor {
 service CorfuConnectBSP {
   rpc RegisterClientWithPolicy (AggregatorSubscribeRequest) returns (stream AggregatorResponse);
   rpc ProcessProposal(Proposal)  returns (SubmitResponse);
+  rpc ProcessProposalforBench(ProposalforBench)  returns (SubmitResponse);
+  rpc Query(QueryRequest) returns (QueryResponse);
 
   rpc SubmitTransaction(SmartContractArgs) returns (WaitForEventResponse);
   rpc WaitForEvent(WaitForEventRequest) returns (WaitForEventResponse);
