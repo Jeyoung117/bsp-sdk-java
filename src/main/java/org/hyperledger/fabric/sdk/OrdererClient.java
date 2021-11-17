@@ -265,6 +265,140 @@ class OrdererClient {
         }
     }
 
+    Ab.BroadcastResponse sendTransactions(List<Common.Envelope> envelope) throws Exception {
+        logger.trace(toString() + " OrdererClient.sendTransaction entered.");
+        StreamObserver<Common.Envelope> nso = null;
+
+        if (shutdown) {
+            throw new TransactionException(toString() + " is shutdown");
+        }
+
+        ManagedChannel lmanagedChannel = managedChannel;
+        if (IS_TRACE_LEVEL && lmanagedChannel != null) {
+            logger.trace(format("%s  managed channel isTerminated: %b, isShutdown: %b, state: %s", toString(),
+                    lmanagedChannel.isTerminated(), lmanagedChannel.isShutdown(), lmanagedChannel.getState(false).name()));
+        }
+
+        if (lmanagedChannel == null || lmanagedChannel.isTerminated() || lmanagedChannel.isShutdown()) {
+
+            if (lmanagedChannel != null && lmanagedChannel.isTerminated()) {
+                logger.warn(format("%s managed channel was marked terminated", toString()));
+            }
+            if (lmanagedChannel != null && lmanagedChannel.isShutdown()) {
+                logger.warn(format("%s managed channel was marked shutdown.", toString()));
+            }
+
+            lmanagedChannel = channelBuilder.build();
+            managedChannel = lmanagedChannel;
+
+        }
+
+        if (IS_TRACE_LEVEL && lmanagedChannel != null) {
+            logger.trace(format("%s  managed channel isTerminated: %b, isShutdown: %b, state: %s", toString(),
+                    lmanagedChannel.isTerminated(), lmanagedChannel.isShutdown(), lmanagedChannel.getState(false).name()));
+        }
+
+        try {
+            final CountDownLatch finishLatch = new CountDownLatch(1);
+            AtomicBroadcastGrpc.AtomicBroadcastStub broadcast = AtomicBroadcastGrpc.newStub(lmanagedChannel);
+
+            final Ab.BroadcastResponse[] ret = new Ab.BroadcastResponse[1];
+            final Throwable[] throwable = new Throwable[] {null};
+
+            StreamObserver<Ab.BroadcastResponse> so = new StreamObserver<Ab.BroadcastResponse>() {
+                @Override
+                public void onNext(Ab.BroadcastResponse resp) {
+                    // logger.info("Got Broadcast response: " + resp);
+                    logger.debug(OrdererClient.this.toString() + " resp status value: " + resp.getStatusValue() + ", resp: " + resp.getStatus());
+                    if (resp.getStatus() == Common.Status.SUCCESS) {
+                        ret[0] = resp;
+                    } else {
+                        throwable[0] = new TransactionException(format("Channel %s orderer %s status returned failure code %d (%s) during orderer next",
+                                channelName, name, resp.getStatusValue(), resp.getStatus().name()));
+                    }
+                    finishLatch.countDown();
+
+                }
+
+                @Override
+                public void onError(Throwable t) {
+                    if (!shutdown) {
+                        ManagedChannel lmanagedChannel = managedChannel;
+                        managedChannel = null;
+                        if (lmanagedChannel == null) {
+                            logger.error(OrdererClient.this.toString() + " managed channel was null.");
+
+                        } else {
+
+                            logger.error(format("%s  managed channel isTerminated: %b, isShutdown: %b, state: %s", OrdererClient.this.toString(),
+                                    lmanagedChannel.isTerminated(), lmanagedChannel.isShutdown(), lmanagedChannel.getState(false).name()));
+
+                        }
+                        logger.error(format("Received error %s  %s",
+                                toString(), t.getMessage()), t);
+                    }
+                    throwable[0] = t;
+                    finishLatch.countDown();
+                }
+
+                @Override
+                public void onCompleted() {
+                    logger.trace(OrdererClient.this.toString() + " onComplete received.");
+                    finishLatch.countDown();
+                }
+            };
+
+            nso = broadcast.broadcast(so);
+            for (Common.Envelope envelope1 : envelope) {
+                nso.onNext(envelope1);
+            }
+
+            try {
+                if (!finishLatch.await(ordererWaitTimeMilliSecs, TimeUnit.MILLISECONDS)) {
+                    TransactionException ste = new TransactionException(format("Channel %s, send transactions failed on orderer %s. Reason:  timeout after %d ms.",
+                            channelName, toString(), ordererWaitTimeMilliSecs));
+                    logger.error("sendTransaction error " + ste.getMessage(), ste);
+                    throw ste;
+                }
+                if (throwable[0] != null) {
+                    Throwable t = throwable[0];
+                    if (t instanceof StatusRuntimeException) {
+                        StatusRuntimeException sre = (StatusRuntimeException) t;
+                        Status status = sre.getStatus();
+                        logger.error(format("%s grpc status Code:%s, Description %s, ", toString(), status.getDescription(), status.getCode() + ""), sre.getCause());
+                    }
+                    //get full stack trace
+                    TransactionException ste = new TransactionException(format("Channel %s, send transaction failed on orderer %s. Reason: %s",
+                            channelName, toString(), throwable[0].getMessage()), throwable[0]);
+                    logger.error(toString() + "sendTransaction error " + ste.getMessage(), ste);
+                    throw ste;
+                }
+                logger.debug(toString() + " done waiting for reply! Got:" + ret[0]);
+
+            } catch (InterruptedException e) {
+                logger.error(toString(), e);
+            }
+
+            return ret[0];
+        } catch (Throwable t) {
+            managedChannel = null;
+            throw t;
+
+        } finally {
+
+            if (null != nso) {
+
+                try {
+                    nso.onCompleted();
+                } catch (Exception e) {  //Best effort only report on debug
+                    logger.debug(format("Exception completing sendTransaction with %s %s",
+                            toString(), e.getMessage()), e);
+                }
+            }
+
+        }
+    }
+
     DeliverResponse[] sendDeliver(Common.Envelope envelope) throws TransactionException {
 
         logger.trace(toString() + " OrdererClient.sendDeliver entered.");

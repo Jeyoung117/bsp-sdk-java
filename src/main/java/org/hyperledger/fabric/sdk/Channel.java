@@ -1273,7 +1273,7 @@ public class Channel implements Serializable {
                 });
             }
 
-            startEventQue(); //Run the event for event messages from event hubs.
+//            startEventQue(); //Run the event for event messages from event hubs.
             logger.info(format("Channel %s eventThread started shutdown: %b  thread: %s ", toString(), shutdown, eventQueueThread == null ? "null" : eventQueueThread.getName()));
 
             this.initialized = true;
@@ -4961,9 +4961,7 @@ public class Channel implements Serializable {
 
     private BspTransactionOuterClass.SubmitResponse sendProposalToAdaptermodule(BspTransactionOuterClass.Proposal signedProposal) throws ProposalException {
         BspTransactionOuterClass.SubmitResponse response = corfuStub.processProposal(signedProposal);
-        if(response.getStatus() != 200) {
-            //제대로 된 값 return 못 받으면 에러 처리, channel.java 4930 line 참고
-        }
+
         return response;
     }
 
@@ -5650,6 +5648,14 @@ public class Channel implements Serializable {
                 .whenComplete((result, exception) -> logCompletion("sendTransaction", result, exception));
     }
 
+    public void sendEnvelope(Common.Envelope env, TransactionOptions transactionOptions) {
+        doSendEnvelope(env, transactionOptions);
+    }
+
+    public void sendEnvelopes(List<Common.Envelope> envs, TransactionOptions transactionOptions) {
+        doSendEnvelopes(envs, transactionOptions);
+    }
+
     private <T> T logCompletion(final String message, final T result, final Throwable exception) {
 
         if (exception != null) {
@@ -5862,6 +5868,231 @@ public class Channel implements Serializable {
             CompletableFuture<TransactionEvent> future = new CompletableFuture<>();
             future.completeExceptionally(e);
             return future;
+        }
+    }
+
+    private void doSendEnvelope(Common.Envelope env, TransactionOptions transactionOptions) {
+
+        try {
+            if (null == transactionOptions) {
+                throw new InvalidArgumentException("Parameter transactionOptions can't be null");
+            }
+            checkChannelState();
+            User userContext = transactionOptions.userContext != null ? transactionOptions.userContext : client.getUserContext();
+            userContextCheck(userContext);
+            if (null == env) {
+                throw new InvalidArgumentException("sendTransaction Envelope was null");
+            }
+
+            List<Orderer> orderers = transactionOptions.orderers != null ? transactionOptions.orderers :
+                    new ArrayList<>(getOrderers());
+
+            final List<Orderer> shuffeledOrderers = new ArrayList<>(orderers);
+
+            if (transactionOptions.shuffleOrders) {
+                Collections.shuffle(shuffeledOrderers);
+            }
+
+//            Envelope transactionEnvelope = createTransactionEnvelope(transactionPayload, transactionContext);
+
+            NOfEvents nOfEvents = transactionOptions.nOfEvents;
+
+            if (nOfEvents == null) {
+                nOfEvents = NOfEvents.createNofEvents();
+                Collection<Peer> eventingPeers = getEventingPeers();
+                boolean anyAdded = false;
+                if (!eventingPeers.isEmpty()) {
+                    anyAdded = true;
+                    nOfEvents.addPeers(eventingPeers);
+                }
+
+                if (!anyAdded) {
+                    nOfEvents = NOfEvents.createNoEvents();
+                }
+            } else if (nOfEvents != NOfEvents.nofNoEvents) {
+                StringBuilder issues = new StringBuilder(100);
+                Collection<Peer> eventingPeers = getEventingPeers();
+                nOfEvents.unSeenPeers().forEach(peer -> {
+                    if (peer.getChannel() != this) {
+                        issues.append(format("Peer %s added to NOFEvents does not belong this channel. ", peer.getName()));
+
+                    } else if (!eventingPeers.contains(peer)) {
+                        issues.append(format("Peer %s added to NOFEvents is not a eventing Peer in this channel. ", peer.getName()));
+                    }
+                });
+
+                if (nOfEvents.unSeenPeers().isEmpty()) {
+                    issues.append("NofEvents had no added  Peer eventing services.");
+                }
+                String foundIssues = issues.toString();
+                if (!foundIssues.isEmpty()) {
+                    throw new InvalidArgumentException(foundIssues);
+                }
+            }
+
+            final boolean replyonly = nOfEvents == NOfEvents.nofNoEvents || (getEventingPeers().isEmpty());
+
+            logger.debug(format("Channel %s sending transaction to orderer(s)", name));
+            boolean success = false;
+            Exception lException = null; // Save last exception to report to user .. others are just logged.
+
+            BroadcastResponse resp = null;
+            Orderer failed = null;
+            for (Orderer orderer : shuffeledOrderers) {
+                if (failed != null) {
+                    logger.warn(format("Channel %s  %s failed. Now trying %s.", name, failed, orderer));
+                }
+                failed = orderer;
+                try {
+                    resp = orderer.sendTransaction(env);
+                    lException = null; // no longer last exception .. maybe just failed.
+                    if (resp.getStatus() == Status.SUCCESS) {
+                        logger.info("보내고 받은 resp.status: " + resp.getStatus());
+                        logger.info("보내고 받은 resp.getInfo: " + resp.getInfo());
+
+                        success = true;
+                        break;
+                    } else {
+                        logger.warn(format("Channel %s %s failed. Status returned %s", name, orderer, getRespData(resp)));
+                    }
+                } catch (Exception e) {
+                    String emsg = format("Channel %s unsuccessful sendTransaction to orderer %s (%s)",
+                            name, orderer.getName(), orderer.getUrl());
+                    if (resp != null) {
+
+                        emsg = format("Channel %s unsuccessful sendTransaction to orderer %s (%s).  %s",
+                                name, orderer.getName(), orderer.getUrl(), getRespData(resp));
+                    }
+
+                    logger.error(emsg);
+                    lException = new Exception(emsg, e);
+                }
+            }
+
+            if (success) {
+                logger.debug(format("Channel %s successful sent to Orderer%s",
+                        name));
+
+            } else {
+                String emsg = format("Channel %s failed to place transaction on Orderer. Cause: UNSUCCESSFUL. %s",
+                        name, getRespData(resp));
+
+                CompletableFuture<TransactionEvent> ret = new CompletableFuture<>();
+                ret.completeExceptionally(lException != null ? new Exception(emsg, lException) : new Exception(emsg));
+            }
+        } catch (Exception e) {
+            CompletableFuture<TransactionEvent> future = new CompletableFuture<>();
+            future.completeExceptionally(e);
+        }
+    }
+
+    private void doSendEnvelopes(List<Common.Envelope> envs, TransactionOptions transactionOptions) {
+
+        try {
+            if (null == transactionOptions) {
+                throw new InvalidArgumentException("Parameter transactionOptions can't be null");
+            }
+            checkChannelState();
+            User userContext = transactionOptions.userContext != null ? transactionOptions.userContext : client.getUserContext();
+            userContextCheck(userContext);
+            if (null == envs) {
+                throw new InvalidArgumentException("sendTransaction Envelope was null");
+            }
+
+            List<Orderer> orderers = transactionOptions.orderers != null ? transactionOptions.orderers :
+                    new ArrayList<>(getOrderers());
+
+            final List<Orderer> shuffeledOrderers = new ArrayList<>(orderers);
+
+            if (transactionOptions.shuffleOrders) {
+                Collections.shuffle(shuffeledOrderers);
+            }
+
+            NOfEvents nOfEvents = transactionOptions.nOfEvents;
+
+            if (nOfEvents == null) {
+                nOfEvents = NOfEvents.createNofEvents();
+                Collection<Peer> eventingPeers = getEventingPeers();
+                boolean anyAdded = false;
+                if (!eventingPeers.isEmpty()) {
+                    anyAdded = true;
+                    nOfEvents.addPeers(eventingPeers);
+                }
+
+                if (!anyAdded) {
+                    nOfEvents = NOfEvents.createNoEvents();
+                }
+            } else if (nOfEvents != NOfEvents.nofNoEvents) {
+                StringBuilder issues = new StringBuilder(100);
+                Collection<Peer> eventingPeers = getEventingPeers();
+                nOfEvents.unSeenPeers().forEach(peer -> {
+                    if (peer.getChannel() != this) {
+                        issues.append(format("Peer %s added to NOFEvents does not belong this channel. ", peer.getName()));
+
+                    } else if (!eventingPeers.contains(peer)) {
+                        issues.append(format("Peer %s added to NOFEvents is not a eventing Peer in this channel. ", peer.getName()));
+                    }
+                });
+
+                if (nOfEvents.unSeenPeers().isEmpty()) {
+                    issues.append("NofEvents had no added  Peer eventing services.");
+                }
+                String foundIssues = issues.toString();
+                if (!foundIssues.isEmpty()) {
+                    throw new InvalidArgumentException(foundIssues);
+                }
+            }
+
+            final boolean replyonly = nOfEvents == NOfEvents.nofNoEvents || (getEventingPeers().isEmpty());
+
+            logger.debug(format("Channel %s sending transaction to orderer(s)", name));
+            boolean success = false;
+            Exception lException = null; // Save last exception to report to user .. others are just logged.
+
+            BroadcastResponse resp = null;
+            Orderer failed = null;
+            for (Orderer orderer : shuffeledOrderers) {
+                if (failed != null) {
+                    logger.warn(format("Channel %s  %s failed. Now trying %s.", name, failed, orderer));
+                }
+                failed = orderer;
+                try {
+                    resp = orderer.sendTransactions(envs);
+                    lException = null; // no longer last exception .. maybe just failed.
+                    if (resp.getStatus() == Status.SUCCESS) {
+                        success = true;
+                        break;
+                    } else {
+                        logger.warn(format("Channel %s %s failed. Status returned %s", name, orderer, getRespData(resp)));
+                    }
+                } catch (Exception e) {
+                    String emsg = format("Channel %s unsuccessful sendTransaction to orderer %s (%s)",
+                            name, orderer.getName(), orderer.getUrl());
+                    if (resp != null) {
+
+                        emsg = format("Channel %s unsuccessful sendTransaction to orderer %s (%s).  %s",
+                                name, orderer.getName(), orderer.getUrl(), getRespData(resp));
+                    }
+
+                    logger.error(emsg);
+                    lException = new Exception(emsg, e);
+                }
+            }
+
+            if (success) {
+                logger.debug(format("Channel %s successful sent to Orderer%s",
+                        name));
+
+            } else {
+                String emsg = format("Channel %s failed to place transaction on Orderer. Cause: UNSUCCESSFUL. %s",
+                        name, getRespData(resp));
+
+                CompletableFuture<TransactionEvent> ret = new CompletableFuture<>();
+                ret.completeExceptionally(lException != null ? new Exception(emsg, lException) : new Exception(emsg));
+            }
+        } catch (Exception e) {
+            CompletableFuture<TransactionEvent> future = new CompletableFuture<>();
+            future.completeExceptionally(e);
         }
     }
 

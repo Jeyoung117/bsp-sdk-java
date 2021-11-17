@@ -17,6 +17,7 @@ package org.hyperledger.fabric.sdk;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.util.List;
 import java.util.Properties;
 
 import io.netty.util.internal.StringUtil;
@@ -166,9 +167,24 @@ public class Orderer implements Serializable {
         } catch (Throwable t) {
             removeOrdererClient(true);
             throw t;
+        }
+    }
 
+    Ab.BroadcastResponse sendTransactions(List<Common.Envelope> transactions) throws Exception {
+        if (shutdown) {
+            throw new TransactionException(format("Orderer %s was shutdown.", name));
         }
 
+        logger.debug(format("Orderer.sendTransaction %s", toString()));
+
+        OrdererClient localOrdererClient = getOrdererClient();
+
+        try {
+            return localOrdererClient.sendTransactions(transactions);
+        } catch (Throwable t) {
+            removeOrdererClient(true);
+            throw t;
+        }
     }
 
     DeliverResponse[] sendDeliver(Common.Envelope transaction) throws TransactionException {
